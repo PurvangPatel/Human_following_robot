@@ -3,8 +3,8 @@ import cv2
 #image.shape[0] = width
 #image.shape[1] = height
 class VideoStream:
-    def __init__(self,camera_ID=0,img_width=640,img_height=480) -> None:
-        """Class to handle camera
+    def __init__(self,camera_ID:int=0,img_width:int=640,img_height:int=480) -> None:
+        """Class to handle camera stream
 
         Args:
             camera_ID (int, optional): camera index to choose the camera. Defaults to 0.
@@ -53,6 +53,7 @@ class VideoStream:
         print("Switching off the camera")
         self.camera_ON =False
         self.cap.release()
+        cv2.destroyAllWindows()
         
       
 
