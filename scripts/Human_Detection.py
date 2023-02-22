@@ -14,9 +14,13 @@ from detectron2.layers import paste_masks_in_image
 
 
 class Human_Detection:
-    def __init__(self) -> None:
+    def __init__(self,pred_conf=0.9) -> None:
         """Class to handle Human detection and segmentation
         """
+        self.detected = False
+        self.pnimg = None
+        self.zipfile = None
+        self.pred_conf = pred_conf
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         try:
             weigths = torch.load('data/yolov7-mask.pt')
@@ -28,7 +32,11 @@ class Human_Detection:
             self.model = weigths['model']
             self.model = self.model.half().to(self.device)
             _ = self.model.eval()
+            self.person_class_idx = self.model.names.index('person')
 
+    def isdetected(self):
+        return self.detected
+    
     def Preprocessing(self,image):
         """Converts the RGB images to tensor of shape [1, 3, 640, 448]
 
@@ -55,47 +63,83 @@ class Human_Detection:
         Returns:
             _type_: _description_
         """
+        _,_,height,width = image_tensor.shape
+        nimg = image_tensor[0].permute(1, 2, 0) * 255
+        nimg = nimg.cpu().numpy().astype(np.uint8)
+        self.pnimg = nimg.copy()
+
         inf_out, attn, bases, sem_output = model_output['test'], model_output['attn'], model_output['bases'], model_output['sem']
         bases = torch.cat([bases, sem_output], dim=1)
-        _, _, height, width = image_tensor.shape
         pooler_scale = self.model.pooler_scale
         pooler = ROIPooler(output_size=self.hyp['mask_resolution'], scales=(pooler_scale,), sampling_ratio=1, pooler_type='ROIAlignV2', canonical_level=2)
         output, output_mask, _, _, _ = non_max_suppression_mask_conf(inf_out, attn, bases, pooler, self.hyp, conf_thres=0.25, iou_thres=0.65, merge=False, mask_iou=None)
         pred, pred_masks = output[0], output_mask[0]
-
-        bboxes = Boxes(pred[:, :4])
-        original_pred_masks = pred_masks.view(-1, self.hyp['mask_resolution'], self.hyp['mask_resolution'])
-        pred_masks = retry_if_cuda_oom(paste_masks_in_image)( original_pred_masks, bboxes, (height, width), threshold=0.5)
-        pred_masks_np = pred_masks.detach().cpu().numpy()
-        pred_cls = pred[:, 5].detach().cpu().numpy()
-        pred_conf = pred[:, 4].detach().cpu().numpy()
-        nimg = image_tensor[0].permute(1, 2, 0) * 255
-        nimg = nimg.cpu().numpy().astype(np.uint8)
-        nbboxes = bboxes.tensor.detach().cpu().numpy().astype(np.int64)
-        pnimg = nimg.copy()
-
-        return pnimg, zip(pred_masks_np, nbboxes, pred_cls, pred_conf)
+        if(pred!=None or pred_masks!=None):
+            self.detected = True
+            bboxes = Boxes(pred[:, :4])
+            original_pred_masks = pred_masks.view(-1, self.hyp['mask_resolution'], self.hyp['mask_resolution'])
+            pred_masks = retry_if_cuda_oom(paste_masks_in_image)( original_pred_masks, bboxes, (height, width), threshold=0.5)
+            pred_masks_np = pred_masks.detach().cpu().numpy()
+            pred_cls = pred[:, 5].detach().cpu().numpy()
+            pred_conf = pred[:, 4].detach().cpu().numpy()
+            nbboxes = bboxes.tensor.detach().cpu().numpy().astype(np.int64)
+            self.zipfile = list(zip(pred_masks_np, nbboxes, pred_cls, pred_conf))
+        else:
+            self.detected = False
 
     def detect(self,image):
         self.image = image
         image_tensor = self.Preprocessing(image)
         model_output = self.model(image_tensor)
-        img,zipfile = self.Postprocessing(image_tensor,model_output)
-        return img,zipfile
+        self.Postprocessing(image_tensor,model_output)
 
+    def mask_bg(self):
+        mask_collection = []
+        img = self.pnimg.copy()
+        if(self.isdetected()):
+            for one_mask, bbox, cls, conf in self.zipfile:
+                if conf < 0.85 and cls !=self.person_class_idx:
+                    continue
+                img_croppped = img[bbox[1]:bbox[3],bbox[0]:bbox[2]]
+                mask = (one_mask[bbox[1]:bbox[3],bbox[0]:bbox[2]]).astype(np.uint8)*255
+                green_bg = np.zeros_like(img_croppped, dtype=np.uint8)
+                green_bg[:] = (0, 255, 0)
+
+                fg = cv2.bitwise_or(img_croppped, img_croppped, mask=mask)
+                mask = cv2.bitwise_not(mask)
+
+                bk = cv2.bitwise_or(green_bg, green_bg, mask=mask)
+
+                final = cv2.bitwise_or(fg, bk)
+                mask_collection.append(final)
+        return mask_collection
+        
+        
+    def display_detection(self):
+        img = self.pnimg.copy()
+        if(self.isdetected()):
+            for one_mask, bbox, cls, conf in self.zipfile:
+                if conf < self.pred_conf and cls !=self.person_class_idx:
+                    continue
+                color = [np.random.randint(255), 0, 0]               
+                img[one_mask] = img[one_mask] * 0.5 + np.array(color, dtype=np.uint8) * 0.5
+                img = cv2.rectangle(img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
+        cv2.imshow("Display_detection",img)    
+
+
+##Yet to implement##
+# Zipfile cleaning
 
 def main():
-    image = cv2.imread('data/person2.jpg')
+    image = cv2.imread('data/person.jpg')
     H_Detect = Human_Detection() 
     img,zipfile = H_Detect.detect(image)
-
     pnimg = img.copy()
+
     person_class_idx = H_Detect.model.names.index('person')
     for one_mask, bbox, cls, conf in zipfile:
-    
-        if conf < 0.85 and cls !=person_class_idx:
+        if conf < H_Detect.pred_conf and cls !=person_class_idx:
             continue
-        
         color = [np.random.randint(255), np.random.randint(255), np.random.randint(255)]               
         pnimg[one_mask] = pnimg[one_mask] * 0.5 + np.array(color, dtype=np.uint8) * 0.5
         pnimg = cv2.rectangle(pnimg, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)

@@ -42,7 +42,6 @@ class VideoStream:
         ret, image = self.cap.read()
         if not ret:
             print("Failed to read image")
-            exit
         else:
             image = cv2.resize(src=image, dsize=(self.img_width,self.img_height), interpolation = cv2.INTER_AREA)
         return image
@@ -64,7 +63,6 @@ def main():
 
     while(camera.camera_isON()):
         image = camera.next_frame()
-        print(type(image))
         cv2.imshow("TEST",image)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             camera.camera_OFF()
