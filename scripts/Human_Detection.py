@@ -5,7 +5,7 @@ import numpy as np
 from torchvision import transforms
 
 from utils.datasets import letterbox
-from utils.general import non_max_suppression_mask_conf
+from utils.general import non_max_suppression_mask_conf,get_iou
 
 from detectron2.modeling.poolers import ROIPooler
 from detectron2.structures import Boxes
@@ -18,8 +18,9 @@ class Human_Detection:
         """Class to handle Human detection and segmentation
         """
         self.detected = False
-        self.pnimg = None
+        self.image = None
         self.zipfile = None
+        self.conf_box = []
         self.pred_conf = pred_conf
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         try:
@@ -37,6 +38,35 @@ class Human_Detection:
     def isdetected(self):
         return self.detected
     
+    def configuration(self,frame):
+        self.image = frame
+        # self.conf_box = [int(self.image.shape[1]/2)-120,0,int(self.image.shape[1]/2)+120,self.image.shape[0]]
+        
+        self.detect(frame)
+        if(self.isdetected()):
+            best_iou = 0.1
+            best_box,best_mask = None, None
+            for one_mask, bbox, cls, conf in self.zipfile:
+                if conf < 0.85 and cls !=self.person_class_idx:
+                    continue
+                iou = get_iou(self.conf_box,bbox)
+                if(best_iou<iou):
+                    best_iou = iou
+                    best_box,best_mask = bbox,one_mask
+            #NOT GOOD PRACTICE
+            if(best_iou > 0.1):
+                masked_img = self.mask_bg(best_box,best_mask)
+                return masked_img
+            else:
+                return None
+        
+
+    def detect(self,image):
+        image_tensor = self.Preprocessing(image)
+        model_output = self.model(image_tensor)
+        self.Postprocessing(image_tensor,model_output)
+
+    
     def Preprocessing(self,image):
         """Converts the RGB images to tensor of shape [1, 3, 640, 448]
 
@@ -46,7 +76,6 @@ class Human_Detection:
         Returns:
             torch.Tensor: tensor of shape [1, 3, 640, 448]
         """
-        image = letterbox(image, 640, stride=64, auto=True)[0]
         image_tensor = transforms.ToTensor()(image)
         image_tensor = torch.tensor(np.array([image_tensor.numpy()]))
         image_tensor = image_tensor.to(self.device)
@@ -64,10 +93,6 @@ class Human_Detection:
             _type_: _description_
         """
         _,_,height,width = image_tensor.shape
-        nimg = image_tensor[0].permute(1, 2, 0) * 255
-        nimg = nimg.cpu().numpy().astype(np.uint8)
-        self.pnimg = nimg.copy()
-
         inf_out, attn, bases, sem_output = model_output['test'], model_output['attn'], model_output['bases'], model_output['sem']
         bases = torch.cat([bases, sem_output], dim=1)
         pooler_scale = self.model.pooler_scale
@@ -87,48 +112,38 @@ class Human_Detection:
         else:
             self.detected = False
 
-    def detect(self,image):
-        self.image = image
-        image_tensor = self.Preprocessing(image)
-        model_output = self.model(image_tensor)
-        self.Postprocessing(image_tensor,model_output)
 
-    def mask_bg(self):
-        mask_collection = []
-        img = self.pnimg.copy()
-        if(self.isdetected()):
-            for one_mask, bbox, cls, conf in self.zipfile:
-                if conf < 0.85 and cls !=self.person_class_idx:
-                    continue
-                img_croppped = img[bbox[1]:bbox[3],bbox[0]:bbox[2]]
-                mask = (one_mask[bbox[1]:bbox[3],bbox[0]:bbox[2]]).astype(np.uint8)*255
-                green_bg = np.zeros_like(img_croppped, dtype=np.uint8)
-                green_bg[:] = (0, 255, 0)
+    
+    
+    def mask_bg(self,bbox,one_mask):
+        img = self.image.copy()
+        img_croppped = img[bbox[1]:bbox[3],bbox[0]:bbox[2]]
+        mask = (one_mask[bbox[1]:bbox[3],bbox[0]:bbox[2]]).astype(np.uint8)*255
+        green_bg = np.zeros_like(img_croppped, dtype=np.uint8)
+        green_bg[:] = (0, 255, 0)
 
-                fg = cv2.bitwise_or(img_croppped, img_croppped, mask=mask)
-                mask = cv2.bitwise_not(mask)
+        fg = cv2.bitwise_or(img_croppped, img_croppped, mask=mask)
+        mask = cv2.bitwise_not(mask)
 
-                bk = cv2.bitwise_or(green_bg, green_bg, mask=mask)
+        bk = cv2.bitwise_or(green_bg, green_bg, mask=mask)
+        img_masked = cv2.bitwise_or(fg, bk)
 
-                final = cv2.bitwise_or(fg, bk)
-                mask_collection.append(final)
-        return mask_collection
+        return img_masked
         
         
-    def display_detection(self):
-        img = self.pnimg.copy()
-        if(self.isdetected()):
-            for one_mask, bbox, cls, conf in self.zipfile:
-                if conf < self.pred_conf and cls !=self.person_class_idx:
-                    continue
-                color = [np.random.randint(255), 0, 0]               
-                img[one_mask] = img[one_mask] * 0.5 + np.array(color, dtype=np.uint8) * 0.5
-                img = cv2.rectangle(img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
+    def display(self,image,bbox=None,mask=None,color=(0,0,0)): 
+        img = image.copy()   
+        if mask is not None and mask.any():         
+            img[mask] = img[mask] * 0.5 + np.array(color, dtype=np.uint8) * 0.5
+        
+        if bbox is not None and len(bbox) >= 4:
+            cv2.rectangle(img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
         cv2.imshow("Display_detection",img)    
 
 
 ##Yet to implement##
 # Zipfile cleaning
+# Eliminate conf_box initialisation everytime
 
 def main():
     image = cv2.imread('data/person.jpg')
