@@ -14,11 +14,11 @@ from detectron2.layers import paste_masks_in_image
 
 
 class Human_Detection:
-    def __init__(self,pred_conf=0.9) -> None:
+    def __init__(self,pred_conf=0.85) -> None:
         """Class to handle Human detection and segmentation
         """
+        self.features = np.zeros((256,1))
         self.detected = False
-        self.image = None
         self.zipfile = None
         self.conf_box = []
         self.pred_conf = pred_conf
@@ -38,27 +38,22 @@ class Human_Detection:
     def isdetected(self):
         return self.detected
     
-    def configuration(self,frame):
-        self.image = frame
-        # self.conf_box = [int(self.image.shape[1]/2)-120,0,int(self.image.shape[1]/2)+120,self.image.shape[0]]
+    def configuration(self):
+        if(not self.isdetected()):
+            return None,None
         
-        self.detect(frame)
-        if(self.isdetected()):
-            best_iou = 0.1
-            best_box,best_mask = None, None
-            for one_mask, bbox, cls, conf in self.zipfile:
-                if conf < 0.85 and cls !=self.person_class_idx:
-                    continue
-                iou = get_iou(self.conf_box,bbox)
-                if(best_iou<iou):
-                    best_iou = iou
-                    best_box,best_mask = bbox,one_mask
-            #NOT GOOD PRACTICE
-            if(best_iou > 0.1):
-                masked_img = self.mask_bg(best_box,best_mask)
-                return masked_img
-            else:
-                return None
+        best_iou = 0.1
+        best_box,best_mask = None, None
+        for one_mask, bbox, cls, conf in self.zipfile:
+            if conf < self.pred_conf or cls != self.person_class_idx:
+                continue
+            iou = get_iou(self.conf_box,bbox)
+            if(iou>best_iou):
+                best_iou = iou
+                best_box,best_mask = bbox,one_mask
+        return best_box,best_mask
+
+        
         
 
     def detect(self,image):
@@ -115,35 +110,33 @@ class Human_Detection:
 
     
     
-    def mask_bg(self,bbox,one_mask):
-        img = self.image.copy()
-        img_croppped = img[bbox[1]:bbox[3],bbox[0]:bbox[2]]
+    def mask_bg(self,image,bbox,one_mask,color=(0,255,0)):
+        img_croppped = image[bbox[1]:bbox[3],bbox[0]:bbox[2]]
         mask = (one_mask[bbox[1]:bbox[3],bbox[0]:bbox[2]]).astype(np.uint8)*255
-        green_bg = np.zeros_like(img_croppped, dtype=np.uint8)
-        green_bg[:] = (0, 255, 0)
-
-        fg = cv2.bitwise_or(img_croppped, img_croppped, mask=mask)
+        foreground = cv2.bitwise_or(img_croppped, img_croppped, mask=mask)
+                
         mask = cv2.bitwise_not(mask)
+        color_background = np.zeros_like(img_croppped, dtype=np.uint8)
+        color_background[:] = color
+        background = cv2.bitwise_or(color_background, color_background, mask=mask)
 
-        bk = cv2.bitwise_or(green_bg, green_bg, mask=mask)
-        img_masked = cv2.bitwise_or(fg, bk)
+        img_masked = cv2.bitwise_or(foreground, background)
 
         return img_masked
         
         
-    def display(self,image,bbox=None,mask=None,color=(0,0,0)): 
-        img = image.copy()   
+    def draw(self,image,bbox=None,mask=None,color=(0,0,0)):  
         if mask is not None and mask.any():         
-            img[mask] = img[mask] * 0.5 + np.array(color, dtype=np.uint8) * 0.5
+            image[mask] = image[mask] * 0.5 + np.array(color, dtype=np.uint8) * 0.5
         
         if bbox is not None and len(bbox) >= 4:
-            cv2.rectangle(img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
-        cv2.imshow("Display_detection",img)    
+            cv2.rectangle(image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2) 
 
 
 ##Yet to implement##
 # Zipfile cleaning
 # Eliminate conf_box initialisation everytime
+#mask_bg bug return None type
 
 def main():
     image = cv2.imread('data/person.jpg')
