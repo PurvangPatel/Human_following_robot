@@ -28,7 +28,7 @@ To use the perception stack, run the following command:
 
 Copy code
 
-`python perception_stack.py`
+`python3 scripts/main.py`
 
 Algorithms used
 ---------------
