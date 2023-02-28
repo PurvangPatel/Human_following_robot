@@ -14,6 +14,9 @@ The following dependencies are required to run the code:
 
 Installation
 ------------
+Clone the repository: 
+
+'git clone https://github.com/Ashwij3/Human_following_robot.git'
 
 To install the dependencies, run the following command:
 
