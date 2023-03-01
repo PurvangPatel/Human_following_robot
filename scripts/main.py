@@ -105,6 +105,7 @@ def main():
                     best_box,best_mask = bbox,one_mask
             if(bestmatches>50):
                 H_detector.draw(frame,best_box,best_mask,color=(0,255,0))   
+            print(bestmatches)
             cv2.imshow("tracking",frame)   
         # timer = tic - time.time()
         # print("Timer:{}",format(timer))
