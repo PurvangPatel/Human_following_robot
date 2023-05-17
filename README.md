@@ -59,5 +59,7 @@ Acknowledgments
 
 The code in this repository is based on the following research papers:
 
--   [YOLOv5: A Universal Object Detector](https://arxiv.org/abs/2104.03350)
 -   [SuperPoint: Self-Supervised Interest Point Detection and Description](https://arxiv.org/abs/1712.07629)
+-   [YOLO-v7](https://github.com/WongKinYiu/yolov7/tree/mask)
+-   [Magic Leap](https://github.com/magicleap/SuperPointPretrainedNetwork)
+
