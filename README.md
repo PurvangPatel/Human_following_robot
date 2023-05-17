@@ -46,7 +46,7 @@ Algorithms used
 
 The perception stack utilizes the following algorithms:
 
--   YOLOv5 for human detection and instance segmentation
+-   YOLOv7 for human detection and instance segmentation
 -   SuperPoint for feature extraction and matching
 
 Results
